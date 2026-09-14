@@ -1,0 +1,13 @@
+application:
+  subdomain: cloudflared
+  background_task: true
+  routes:
+    - /=http://host.lzcapp:36500/
+services:
+  cloudflared:
+    network_mode: host
+    image: docker.io/fliva/lzc-cloudflared:1.0.0
+    binds:
+      - /lzcapp/var/config:/config
+    environment:
+      - PROTOCOL=http2
