@@ -6,7 +6,7 @@ application:
 services:
   cloudflared:
     network_mode: host
-    image: docker.io/fliva/lzc-cloudflared:1.0.0
+    image: docker.io/fliva/lzc-cloudflared:1.0.2
     binds:
       - /lzcapp/var/config:/config
     environment:

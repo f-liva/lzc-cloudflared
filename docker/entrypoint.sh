@@ -10,6 +10,36 @@
 # Token source: TUNNEL_TOKEN env, else /config/config.json {"token": "..."}
 # (same file layout the old package used, kept out of git).
 
+# The box DNS loses the boot race. systemd-resolved on the NAS starts at
+# 07:00:38 but is not answering yet when the Lazycat DNS proxy (172.18.0.1,
+# upstream 127.0.0.53) and the containers come up ~25s later: every lookup in
+# that window dies with "read udp 127.0.0.1->127.0.0.53:53: i/o timeout", so
+# cloudflared cannot resolve region1.v2.argotunnel.com and exits. The retry
+# loop below recovers in ~10s; appending a public resolver AFTER the box one
+# closes even that gap, because a timeout (unlike NXDOMAIN) falls through to
+# the next nameserver.
+#
+# Order matters and must not be flipped: the tunnel's own origins are
+# *.lzcapp names that ONLY 172.18.0.1 knows (e.g.
+# gitea.cloud.lazycat.app.gitea.lzcapp). A public resolver answers those with
+# an authoritative NXDOMAIN, which does NOT fall through — putting 1.1.1.1
+# first breaks every ingress rule with "no such host".
+#
+# The resolver on the NAS itself is not ours to fix: lzcos manages
+# systemd-resolved without a unit file and /AGENTS.md forbids touching system
+# config.
+#
+# DNS_FALLBACK="" disables the append; set it to other servers to change them.
+DNS_FALLBACK="${DNS_FALLBACK-1.1.1.1 1.0.0.1}"
+if [ -n "$DNS_FALLBACK" ] && [ -w /etc/resolv.conf ]; then
+  for s in $DNS_FALLBACK; do
+    grep -q "^nameserver[[:space:]]*$s\b" /etc/resolv.conf || echo "nameserver $s" >> /etc/resolv.conf
+  done
+  # Without this a dead box resolver burns 5s per attempt before falling through.
+  grep -q "^options.*timeout:" /etc/resolv.conf || echo "options timeout:2 attempts:2" >> /etc/resolv.conf
+  echo "[entrypoint] resolv.conf: $(tr "\n" " " < /etc/resolv.conf | tr -s " ")"
+fi
+
 PID=""
 term() { [ -n "$PID" ] && kill -TERM "$PID" 2>/dev/null; exit 0; }
 trap term TERM INT
