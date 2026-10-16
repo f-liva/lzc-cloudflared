@@ -1,7 +1,7 @@
 package: cloud.lazycat.app.cloudflared
-version: 1.0.3
+version: 1.1.0
 name: Cloudflared Tunnel
-description: Cloudflare Tunnel connector with automatic retry (no web UI)
+description: Cloudflare Tunnel connector with automatic retry and a web config panel
 min_os_version: 1.5.0
 homepage: https://github.com/f-liva/lzc-cloudflared
 author: Federico Liva
@@ -11,10 +11,10 @@ permissions:
 locales:
   en:
     name: Cloudflared Tunnel
-    description: Cloudflare Tunnel connector with automatic retry (no web UI)
+    description: Cloudflare Tunnel connector with automatic retry and a web config panel
   it:
     name: Cloudflared Tunnel
-    description: Connettore Cloudflare Tunnel con retry automatico (senza web UI)
+    description: Connettore Cloudflare Tunnel con retry automatico e pannello web di configurazione
   zh:
     name: Cloudflared Tunnel
-    description: 具有自动重试功能的 Cloudflare Tunnel 连接器
+    description: 具有自动重试和网页配置面板的 Cloudflare Tunnel 连接器

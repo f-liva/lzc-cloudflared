@@ -7,8 +7,11 @@
 # tunnel stays down until someone restarts the container by hand. This loop
 # is the whole fix.
 #
-# Token source: TUNNEL_TOKEN env, else /config/config.json {"token": "..."}
-# (same file layout the old package used, kept out of git).
+# Settings live in /config/config.json, written by the web UI (www/cgi-bin/api):
+#   {"token","protocol","ha_connections","dns_fallback"}
+# Env vars are the fallback for every key, so a manifest-only install (or the
+# old config.json with just the token) keeps working unchanged. One source of
+# truth means the UI and this loop can never show different values.
 
 # The box DNS loses the boot race. systemd-resolved on the NAS starts at
 # 07:00:38 but is not answering yet when the Lazycat DNS proxy (172.18.0.1,
@@ -30,9 +33,15 @@
 # config.
 #
 # DNS_FALLBACK="" disables the append; set it to other servers to change them.
-DNS_FALLBACK="${DNS_FALLBACK-1.1.1.1 1.0.0.1}"
-if [ -n "$DNS_FALLBACK" ] && [ -w /etc/resolv.conf ]; then
-  for s in $DNS_FALLBACK; do
+CONF=/config/config.json
+cfg() { # cfg <key> -> value from config.json, empty if absent
+  sed -n 's/.*"'"$1"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$CONF" 2>/dev/null | head -1
+}
+
+DNS=$(cfg dns_fallback)
+[ -z "$DNS" ] && DNS="${DNS_FALLBACK-1.1.1.1 1.0.0.1}"
+if [ -n "$DNS" ] && [ -w /etc/resolv.conf ]; then
+  for s in $DNS; do
     grep -q "^nameserver[[:space:]]*$s\b" /etc/resolv.conf || echo "nameserver $s" >> /etc/resolv.conf
   done
   # Without this a dead box resolver burns 5s per attempt before falling through.
@@ -40,28 +49,46 @@ if [ -n "$DNS_FALLBACK" ] && [ -w /etc/resolv.conf ]; then
   echo "[entrypoint] resolv.conf: $(tr "\n" " " < /etc/resolv.conf | tr -s " ")"
 fi
 
+# Web UI (busybox httpd + CGI). Port 36500 is what the lzc manifest routes to.
+# It serves the config API, so it must stay up even while cloudflared is down:
+# that is exactly when you need the panel to paste a token.
+WWW_PORT="${WWW_PORT:-36500}"
+if [ "${WWW_ENABLE:-1}" = 1 ]; then
+  httpd -p "0.0.0.0:$WWW_PORT" -h /www
+  echo "[entrypoint] web UI on :$WWW_PORT"
+fi
+
 PID=""
 term() { [ -n "$PID" ] && kill -TERM "$PID" 2>/dev/null; exit 0; }
 trap term TERM INT
 
 while true; do
-  TOKEN="${TUNNEL_TOKEN:-$(sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' /config/config.json 2>/dev/null)}"
+  TOKEN="${TUNNEL_TOKEN:-$(cfg token)}"
   if [ -z "$TOKEN" ]; then
-    echo "[entrypoint] no token (env TUNNEL_TOKEN or /config/config.json), retry in 10s"
+    echo "[entrypoint] no token yet (web UI, TUNNEL_TOKEN or /config/config.json), retry in 10s"
     sleep 10
     continue
   fi
+
+  PROTO=$(cfg protocol); [ -z "$PROTO" ] && PROTO="${PROTOCOL:-quic}"
+  HA=$(cfg ha_connections); [ -z "$HA" ] && HA="${HA_CONNECTIONS:-1}"
 
   # ha-connections 1 on purpose: behind a shared-IPv4 (MAP-E) line the ISP box
   # kills the long-lived edge connections, and with the default 4 the tunnel
   # reconnected ~1.6 times/min, so Cloudflare answered 502 in the gaps.
   # Measured 16/10/2026 on Iliad FTTH, per minute of reconnects:
   # http2+4 (default) 1.6, quic+4 2.6, http2+1 0.6, quic+1 0.13.
+  echo "[entrypoint] starting cloudflared (protocol=$PROTO ha-connections=$HA)"
+  # Metrics on 36501: 36500 is the web UI. The log also goes to a file the UI
+  # reads to count reconnects (no docker-logs access from inside). Truncated
+  # here so the count always refers to the run that is currently up — and no
+  # pipe, or $! would be the pipe's tail and the TERM trap would miss.
+  : > /tmp/cf-status
   cloudflared tunnel --no-autoupdate \
-    --protocol "${PROTOCOL:-quic}" \
-    --ha-connections "${HA_CONNECTIONS:-1}" \
-    --metrics "${METRICS_ADDR:-0.0.0.0:36500}" \
-    run --token "$TOKEN" &
+    --protocol "$PROTO" \
+    --ha-connections "$HA" \
+    --metrics "${METRICS_ADDR:-0.0.0.0:36501}" \
+    run --token "$TOKEN" >> /tmp/cf-status 2>&1 &
   PID=$!
   wait "$PID"
   RC=$?

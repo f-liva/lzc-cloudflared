@@ -1,0 +1,98 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cloudflared Tunnel</title>
+<style>
+:root{--bg:#f6f7f9;--fg:#1b1f24;--mut:#636c76;--line:#d8dde3;--card:#fff;--acc:#f26b21;--ok:#1a7f37;--bad:#b42318}
+@media(prefers-color-scheme:dark){:root{--bg:#15181c;--fg:#e8eaed;--mut:#9aa4ae;--line:#2d333b;--card:#1d2127}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;padding:24px}
+main{max-width:620px;margin:0 auto}
+h1{font-size:20px;margin:0 0 4px;display:flex;align-items:center;gap:8px}
+h1 svg{width:22px;height:22px;flex:none}
+p.sub{margin:0 0 20px;color:var(--mut);font-size:13px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px;margin-bottom:16px}
+.row{display:flex;justify-content:space-between;gap:12px;padding:7px 0;font-size:14px}
+.row span:first-child{color:var(--mut)}
+.row span:last-child{font-variant-numeric:tabular-nums;text-align:right}
+label{display:block;font-weight:600;font-size:13px;margin:14px 0 5px}
+label:first-child{margin-top:0}
+input,select{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--fg);font:inherit}
+small{display:block;color:var(--mut);font-size:12px;margin-top:4px}
+button{margin-top:18px;padding:10px 18px;border:0;border-radius:7px;background:var(--acc);color:#fff;font:600 14px/1 inherit;cursor:pointer}
+button:disabled{opacity:.55;cursor:default}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--mut);margin-right:6px;vertical-align:1px}
+.up{background:var(--ok)}.down{background:var(--bad)}
+#msg{margin-top:12px;font-size:13px;min-height:19px}
+.err{color:var(--bad)}.ok{color:var(--ok)}
+</style>
+<main>
+<h1><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M17.5 19H7a4 4 0 0 1-.4-7.98A6 6 0 0 1 18 9.5a4.5 4.5 0 0 1-.5 9.5z"/></svg>Cloudflared Tunnel</h1>
+<p class="sub">Connettore Cloudflare Tunnel con riavvio automatico.</p>
+
+<div class="card">
+  <div class="row"><span>Stato</span><span id="st"><span class="dot"></span>…</span></div>
+  <div class="row"><span>Connessioni attive</span><span id="conn">—</span></div>
+  <div class="row"><span>Riconnessioni</span><span id="flap">—</span></div>
+  <div class="row"><span>Attivo da</span><span id="up">—</span></div>
+  <div class="row"><span>Versione cloudflared</span><span id="ver">—</span></div>
+</div>
+
+<form class="card" id="f">
+  <label for="token">Token del tunnel</label>
+  <input id="token" type="password" autocomplete="off" placeholder="lascia vuoto per non cambiarlo">
+  <small id="thint">Dal pannello Cloudflare Zero Trust, alla voce del connettore.</small>
+
+  <label for="protocol">Protocollo</label>
+  <select id="protocol">
+    <option value="quic">quic (consigliato)</option>
+    <option value="http2">http2</option>
+    <option value="auto">auto</option>
+  </select>
+  <small>Su linee con IPv4 condiviso (MAP-E, es. fibra Iliad) quic regge meglio.</small>
+
+  <label for="ha">Connessioni verso Cloudflare</label>
+  <select id="ha"><option>1</option><option>2</option><option>3</option><option>4</option></select>
+  <small>Con IPv4 condiviso tenerla a 1: la box del provider chiude le connessioni di lunga durata e ogni caduta diventa un errore 502. Misurato: 4 connessioni = 1,6 riconnessioni/min, 1 = 0,13.</small>
+
+  <label for="dns">Resolver di riserva</label>
+  <input id="dns" placeholder="1.1.1.1 1.0.0.1">
+  <small>Aggiunti dopo quello del box, per sopravvivere alla corsa all'avvio del DNS. Vuoto = disattivato.</small>
+
+  <button id="save">Salva e riavvia il tunnel</button>
+  <div id="msg"></div>
+</form>
+</main>
+<script>
+const $=i=>document.getElementById(i);
+const fmt=s=>{s=Math.max(0,s|0);const d=s/86400|0,h=s%86400/3600|0,m=s%3600/60|0;
+  return d?d+'g '+h+'h':h?h+'h '+m+'m':m+'m'};
+async function load(){
+  try{
+    const r=await fetch('cgi-bin/api?a=status',{cache:'no-store'});
+    const j=await r.json();
+    $('st').innerHTML='<span class="dot '+(j.running?'up':'down')+'"></span>'+(j.running?'in esecuzione':'fermo');
+    $('conn').textContent=j.connections==null?'—':j.connections;
+    $('flap').textContent=j.uptime>60?(j.retries+' ('+(j.retries/(j.uptime/60)).toFixed(2)+'/min)'):j.retries;
+    $('up').textContent=j.uptime?fmt(j.uptime):'—';
+    $('ver').textContent=j.version||'—';
+    $('protocol').value=j.protocol||'quic';
+    $('ha').value=j.ha_connections||1;
+    if(document.activeElement!==$('dns'))$('dns').value=j.dns_fallback||'';
+    $('thint').textContent=j.has_token?'Token presente. Lascia vuoto per non cambiarlo.':'Nessun token salvato: il tunnel non parte finché non lo inserisci.';
+  }catch(e){$('st').innerHTML='<span class="dot down"></span>pannello non raggiungibile'}
+}
+$('f').onsubmit=async e=>{
+  e.preventDefault();$('save').disabled=true;$('msg').className='';$('msg').textContent='Salvataggio…';
+  const b=new URLSearchParams({protocol:$('protocol').value,ha_connections:$('ha').value,dns_fallback:$('dns').value});
+  if($('token').value)b.set('token',$('token').value);
+  try{
+    const r=await fetch('cgi-bin/api?a=save',{method:'POST',body:b});
+    const j=await r.json();
+    if(!j.ok)throw new Error(j.error||'errore');
+    $('token').value='';$('msg').className='ok';$('msg').textContent='Salvato. Il tunnel si riavvia, tra qualche secondo lo stato si aggiorna.';
+  }catch(err){$('msg').className='err';$('msg').textContent='Non salvato: '+err.message}
+  $('save').disabled=false;setTimeout(load,4000);
+};
+load();setInterval(load,5000);
+</script>

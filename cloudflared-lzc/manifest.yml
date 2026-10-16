@@ -2,13 +2,12 @@ application:
   subdomain: cloudflared
   background_task: true
   routes:
+    # Web UI + config API, served by busybox httpd inside the container.
     - /=http://host.lzcapp:36500/
 services:
   cloudflared:
     network_mode: host
-    image: docker.io/fliva/lzc-cloudflared:1.0.3
+    image: docker.io/fliva/lzc-cloudflared:1.1.0
     binds:
+      # Holds config.json: token, protocol, ha_connections, dns_fallback.
       - /lzcapp/var/config:/config
-    environment:
-      - PROTOCOL=quic
-      - HA_CONNECTIONS=1
