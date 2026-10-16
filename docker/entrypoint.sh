@@ -52,8 +52,14 @@ while true; do
     continue
   fi
 
+  # ha-connections 1 on purpose: behind a shared-IPv4 (MAP-E) line the ISP box
+  # kills the long-lived edge connections, and with the default 4 the tunnel
+  # reconnected ~1.6 times/min, so Cloudflare answered 502 in the gaps.
+  # Measured 16/10/2026 on Iliad FTTH, per minute of reconnects:
+  # http2+4 (default) 1.6, quic+4 2.6, http2+1 0.6, quic+1 0.13.
   cloudflared tunnel --no-autoupdate \
-    --protocol "${PROTOCOL:-http2}" \
+    --protocol "${PROTOCOL:-quic}" \
+    --ha-connections "${HA_CONNECTIONS:-1}" \
     --metrics "${METRICS_ADDR:-0.0.0.0:36500}" \
     run --token "$TOKEN" &
   PID=$!

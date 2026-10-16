@@ -6,8 +6,9 @@ application:
 services:
   cloudflared:
     network_mode: host
-    image: docker.io/fliva/lzc-cloudflared:1.0.2
+    image: docker.io/fliva/lzc-cloudflared:1.0.3
     binds:
       - /lzcapp/var/config:/config
     environment:
-      - PROTOCOL=http2
+      - PROTOCOL=quic
+      - HA_CONNECTIONS=1
